@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { HydratedDocument, Model, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
 export class Genre {
@@ -14,4 +14,5 @@ export class Genre {
 }
 
 export const GenreSchema = SchemaFactory.createForClass(Genre);
+export type GenreModel = Model<HydratedDocument<Genre>>;
 GenreSchema.index({ creator: 1, name: 1 }, { unique: true });

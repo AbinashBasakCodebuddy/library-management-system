@@ -4,9 +4,9 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, HydratedDocument } from 'mongoose';
+import { Model, HydratedDocument, Types } from 'mongoose';
 import { Genre } from '../schemas/genre.schema';
-import { Book } from '../schemas/book.schema';
+import { Book, type BookModel } from '../schemas/book.schema';
 import { CreateGenreDto } from './dto/create-genre.dto';
 import { UpdateGenreDto } from './dto/update-genre.dto';
 
@@ -16,7 +16,7 @@ export class GenreService {
         @InjectModel(Genre.name)
         private readonly genreModel: Model<HydratedDocument<Genre>>,
         @InjectModel(Book.name)
-        private readonly bookModel: Model<HydratedDocument<Book>>,
+        private readonly bookModel: BookModel,
     ) {}
 
     async create(createGenreDto: CreateGenreDto, authorId: string) {
@@ -67,11 +67,11 @@ export class GenreService {
     }
 
     async remove(id: string, authorId: string) {
-        const bookCount = await this.bookModel.countDocuments({
-            genres: id,
+        const bookCount = await this.bookModel.findOne({
+            genres: new Types.ObjectId(id),
         });
 
-        if (bookCount > 0) {
+        if (bookCount) {
             throw new BadRequestException(
                 'Cannot delete genre while books are associated with it',
             );

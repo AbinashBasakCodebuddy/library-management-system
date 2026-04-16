@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { HydratedDocument, Model, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
 export class Book {
@@ -14,3 +14,5 @@ export class Book {
 }
 
 export const BookSchema = SchemaFactory.createForClass(Book);
+export type BookModel = Model<HydratedDocument<Book>>;
+BookSchema.index({ title: 1, author: 1 }, { unique: true });
