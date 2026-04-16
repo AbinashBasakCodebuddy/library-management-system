@@ -9,11 +9,26 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { AuthorModule } from './author/author.module';
 import { BookModule } from './book/book.module';
 import { GenreModule } from './genre/genre.module';
+import Joi from 'joi';
+
+const envSchema = Joi.object({
+    PORT: Joi.number().port().default(3000),
+    MONGO_URI: Joi.string().uri().required(),
+    JWT_SECRET: Joi.string().min(16).required(),
+    NODE_ENV: Joi.string()
+        .valid('development', 'production', 'test', 'staging')
+        .default('development'),
+});
 
 @Module({
     imports: [
         ConfigModule.forRoot({
             isGlobal: true,
+            validationSchema: envSchema,
+            validationOptions: {
+                abortEarly: false,
+                allowUnknown: true,
+            },
         }),
         MongooseModule.forRoot(process.env.MONGO_URI as string),
         AuthModule,
