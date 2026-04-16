@@ -5,7 +5,7 @@ services:
     build: .
     environment:
       - PORT=7777
-      - MONGO_URI=mongodb://mongo-database:27017/library-management
+      - MONGO_URI=mongodb://mongoroot:testpassword@mongo-database:27017/library-management?authSource=admin
       - JWT_SECRET=6f6sd5f65sd6f56
     ports:
       - "7777:7777"
@@ -18,6 +18,10 @@ services:
 
   mongo-database:
     image: mongo:latest
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=mongoroot
+      - MONGO_INITDB_ROOT_PASSWORD=testpassword
+      - MONGO_INITDB_DATABASE=library-management
     ports:
       - "27017:27017"
     volumes:
