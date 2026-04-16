@@ -9,7 +9,7 @@ import { Author, type AuthorModel } from '../schemas/author.schema';
 import { CreateAuthorDto } from './dto/create-author.dto';
 import { LoginAuthorDto } from './dto/login-author.dto';
 import { UpdateAuthorDto } from './dto/update-author.dto';
-import * as bcrypt from 'bcrypt';
+import bcryptjs from 'bcryptjs';
 
 @Injectable()
 export class AuthorService {
@@ -28,7 +28,10 @@ export class AuthorService {
             throw new ConflictException('Email already registered');
         }
 
-        const hashedPassword = await bcrypt.hash(createAuthorDto.password, 10);
+        const hashedPassword = await bcryptjs.hash(
+            createAuthorDto.password,
+            10,
+        );
         const author = await this.authorModel.create({
             ...createAuthorDto,
             password: hashedPassword,
@@ -47,7 +50,7 @@ export class AuthorService {
             throw new UnauthorizedException('Invalid credentials');
         }
 
-        const passwordMatches = await bcrypt.compare(
+        const passwordMatches = await bcryptjs.compare(
             loginAuthorDto.password,
             author.password,
         );

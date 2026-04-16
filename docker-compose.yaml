@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  library-management-api:
+    build: .
+    environment:
+      - PORT=7777
+      - MONGO_URI=mongodb://mongo-database:27017/library-management
+      - JWT_SECRET=6f6sd5f65sd6f56
+    ports:
+      - "7777:7777"
+    depends_on:
+      - mongo-database
+    volumes:
+      - .:/app
+    networks:
+      - lm-network
+
+  mongo-database:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - lm-network
+
+volumes:
+  mongo-data:
+
+networks:
+  lm-network:
+    driver: bridge

@@ -28,7 +28,7 @@
         "@nestjs/passport": "^11.0.0",
         "@nestjs/platform-express": "^11.1.19",
         "@nestjs/swagger": "^11.3.0",
-        "bcrypt": "^5.1.0",
+        "bcryptjs": "^3.0.3",
         "joi": "^17.9.2",
         "mongoose": "^9.4.1",
         "passport": "^0.6.0",
@@ -79,10 +79,5 @@
         ],
         "coverageDirectory": "../coverage",
         "testEnvironment": "node"
-    },
-    "pnpm": {
-        "onlyBuiltDependencies": [
-            "bcrypt"
-        ]
     }
 }

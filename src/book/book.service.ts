@@ -303,8 +303,8 @@ export class BookService {
 
     async remove(id: string, authorId: string) {
         const book = await this.bookModel.findOneAndDelete({
-            _id: id,
-            author: authorId,
+            _id: new Types.ObjectId(id),
+            author: new Types.ObjectId(authorId),
         });
 
         if (!book) {
