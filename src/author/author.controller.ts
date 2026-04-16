@@ -3,11 +3,9 @@ import {
     Controller,
     Delete,
     Get,
-    Param,
     Patch,
     Post,
-    Req,
-    UnauthorizedException,
+    UseGuards,
     UsePipes,
 } from '@nestjs/common';
 import { AuthorService } from './author.service';
@@ -17,6 +15,9 @@ import { UpdateAuthorDto } from './dto/update-author.dto';
 import { JoiValidationPipe } from '../common/pipes/joi-validation.pipe';
 import { loginSchema, signupSchema } from './author.validation';
 import { Public } from '../auth/public.decorator';
+import { PrivateGuard } from '../auth/private.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { ApiBearerAuth } from '@nestjs/swagger';
 
 @Controller('author')
 export class AuthorController {
@@ -36,31 +37,27 @@ export class AuthorController {
         return this.authorService.login(loginAuthorDto);
     }
 
-    @Get(':id')
-    findOne(@Param('id') id: string, @Req() req: { user: { userId: string } }) {
-        if (req.user.userId !== id) {
-            throw new UnauthorizedException('Access denied');
-        }
-        return this.authorService.findOne(id);
+    @ApiBearerAuth()
+    @UseGuards(PrivateGuard)
+    @Get('me')
+    findOne(@CurrentUser() user: { userId: string }) {
+        return this.authorService.findOne(user.userId);
     }
 
-    @Patch(':id')
+    @ApiBearerAuth()
+    @UseGuards(PrivateGuard)
+    @Patch('me')
     update(
-        @Param('id') id: string,
+        @CurrentUser() user: { userId: string },
         @Body() updateAuthorDto: UpdateAuthorDto,
-        @Req() req: { user: { userId: string } },
     ) {
-        if (req.user.userId !== id) {
-            throw new UnauthorizedException('Access denied');
-        }
-        return this.authorService.update(id, updateAuthorDto);
+        return this.authorService.update(user.userId, updateAuthorDto);
     }
 
-    @Delete(':id')
-    remove(@Param('id') id: string, @Req() req: { user: { userId: string } }) {
-        if (req.user.userId !== id) {
-            throw new UnauthorizedException('Access denied');
-        }
-        return this.authorService.remove(id);
+    @ApiBearerAuth()
+    @UseGuards(PrivateGuard)
+    @Delete('me')
+    remove(@CurrentUser() user: { userId: string }) {
+        return this.authorService.remove(user.userId);
     }
 }
