@@ -1,8 +1,10 @@
 import {
     BadRequestException,
+    Inject,
     Injectable,
     NotFoundException,
 } from '@nestjs/common';
+import { type Cache } from 'cache-manager';
 import { CreateBookDto } from './dto/create-book.dto';
 import { UpdateBookDto } from './dto/update-book.dto';
 import { Book, type BookModel } from 'src/schemas/book.schema';
@@ -11,15 +13,26 @@ import { Genre, type GenreModel } from 'src/schemas/genre.schema';
 import { PipelineStage, Types } from 'mongoose';
 import { GetBookDto } from './dto/get-book.dto';
 import { Author, type AuthorModel } from 'src/schemas/author.schema';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 
 @Injectable()
 export class BookService {
+    private readonly cacheTTL = 300;
+
     constructor(
         @InjectModel(Book.name) private readonly bookModel: BookModel,
         @InjectModel(Author.name) private readonly authorModel: AuthorModel,
         @InjectModel(Genre.name)
         private readonly genreModel: GenreModel,
+        @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     ) {}
+
+    private async invalidateUserBookCache(userId: string, bookId?: string) {
+        await this.cacheManager.del(`book:list:${userId}`);
+        if (bookId) {
+            await this.cacheManager.del(`book:detail:${userId}:${bookId}`);
+        }
+    }
 
     private async checkGenresExistAndBelongToUser(
         genreIds: string[],
@@ -63,13 +76,16 @@ export class BookService {
             new Types.ObjectId(userId),
         );
 
-        return this.bookModel.create({
+        const book = await this.bookModel.create({
             title: createBookDto.title,
             author: new Types.ObjectId(userId),
             genres: createBookDto.genres.map(
                 (genreId) => new Types.ObjectId(genreId),
             ),
         });
+
+        await this.invalidateUserBookCache(userId);
+        return book;
     }
 
     async getPublicBooks(payload: GetBookDto) {
@@ -102,7 +118,7 @@ export class BookService {
             matchStage.$match.genres = { $in: genresArray };
         }
 
-        return this.bookModel.aggregate([
+        const bookList = await this.bookModel.aggregate<Book>([
             matchStage,
             {
                 $lookup: {
@@ -151,10 +167,17 @@ export class BookService {
                 },
             },
         ]);
+        return bookList;
     }
 
-    findAll(userId: string) {
-        return this.bookModel.aggregate([
+    async findAll(userId: string) {
+        const cacheKey = `book:list:${userId}`;
+        const cached = await this.cacheManager.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        const bookList = await this.bookModel.aggregate<Book>([
             {
                 $match: {
                     author: new Types.ObjectId(userId),
@@ -208,9 +231,17 @@ export class BookService {
                 },
             },
         ]);
+        await this.cacheManager.set(cacheKey, bookList, this.cacheTTL);
+        return bookList;
     }
 
     async findOne(id: string, userId: string) {
+        const cacheKey = `book:detail:${userId}:${id}`;
+        const cached = await this.cacheManager.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
         const book = await this.bookModel.aggregate<Book>([
             {
                 $match: {
@@ -272,6 +303,7 @@ export class BookService {
             throw new NotFoundException('Book not found or access denied');
         }
 
+        await this.cacheManager.set(cacheKey, book[0], this.cacheTTL);
         return book[0];
     }
 
@@ -319,6 +351,7 @@ export class BookService {
         }
 
         await book.save();
+        await this.invalidateUserBookCache(authorId, id);
 
         return book;
     }
@@ -339,6 +372,7 @@ export class BookService {
             throw new NotFoundException('Book not found or access denied');
         }
 
+        await this.invalidateUserBookCache(authorId, id);
         return { message: 'Book deleted successfully' };
     }
 }

@@ -14,4 +14,10 @@ export default () => ({
     auth: {
         jwtSecret: process.env.JWT_SECRET,
     },
+    cache: {
+        host: process.env.REDIS_HOST,
+        port: process.env.REDIS_PORT,
+        ttl: process.env.REDIS_TTL,
+        password: process.env.REDIS_PASSWORD,
+    },
 });

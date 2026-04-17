@@ -1,22 +1,29 @@
 import {
     BadRequestException,
+    Inject,
     Injectable,
     NotFoundException,
 } from '@nestjs/common';
+import { type Cache } from 'cache-manager';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, HydratedDocument, Types } from 'mongoose';
 import { Genre } from '../schemas/genre.schema';
 import { Book, type BookModel } from '../schemas/book.schema';
 import { CreateGenreDto } from './dto/create-genre.dto';
 import { UpdateGenreDto } from './dto/update-genre.dto';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 
 @Injectable()
 export class GenreService {
+    private readonly cacheTTL = 300;
+
     constructor(
         @InjectModel(Genre.name)
         private readonly genreModel: Model<HydratedDocument<Genre>>,
         @InjectModel(Book.name)
         private readonly bookModel: BookModel,
+        @Inject(CACHE_MANAGER)
+        private readonly cacheManager: Cache,
     ) {}
 
     async create(createGenreDto: CreateGenreDto, authorId: string) {
@@ -34,16 +41,29 @@ export class GenreService {
             );
         }
 
-        return this.genreModel.create({
+        const genre = await this.genreModel.create({
             ...createGenreDto,
             creator: new Types.ObjectId(authorId),
         });
+
+        await this.cacheManager.del(`genre:list:${authorId}`);
+        return genre;
     }
 
-    findAll(authorId: string) {
-        return this.genreModel
+    async findAll(authorId: string) {
+        const cacheKey = `genre:list:${authorId}`;
+        const cached = await this.cacheManager.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
+        const result = await this.genreModel
             .find({ creator: new Types.ObjectId(authorId), deletedAt: null })
             .exec();
+
+        await this.cacheManager.set(cacheKey, result, this.cacheTTL);
+
+        return result;
     }
 
     async findOne(id: string, authorId: string) {
@@ -81,6 +101,9 @@ export class GenreService {
             throw new NotFoundException('Genre not found or access denied');
         }
 
+        await this.cacheManager.del(`genre:list:${authorId}`);
+        await this.cacheManager.del(`book:list:${authorId}`);
+
         return genre;
     }
 
@@ -114,6 +137,7 @@ export class GenreService {
             throw new NotFoundException('Genre not found or access denied');
         }
 
+        await this.cacheManager.del(`genre:list:${authorId}`);
         return { deleted: true };
     }
 }

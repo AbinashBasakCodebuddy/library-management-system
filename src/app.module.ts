@@ -16,9 +16,11 @@ import { BookModule } from './book/book.module';
 import { GenreModule } from './genre/genre.module';
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
+import { CacheModule } from '@nestjs/cache-manager';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { RequestLoggerService } from './common/loggers/request-logger.service';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
+import { redisStore } from 'cache-manager-redis-store';
 
 @Module({
     imports: [
@@ -36,6 +38,21 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
             inject: [ConfigService],
             useFactory: (configService: ConfigService) => ({
                 uri: configService.get<string>('database.mongoUri'),
+            }),
+        }),
+        CacheModule.registerAsync({
+            imports: [ConfigModule],
+            inject: [ConfigService],
+            useFactory: async (config: ConfigService) => ({
+                store: await redisStore({
+                    socket: {
+                        host: config.get<string>('cache.host'),
+                        port: Number(config.get('cache.port')),
+                    },
+                    password: config.get<string>('cache.password'),
+                    ttl: Number(config.get('cache.ttl')),
+                }),
+                isGlobal: true,
             }),
         }),
         ThrottlerModule.forRootAsync({

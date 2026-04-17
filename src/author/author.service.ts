@@ -1,9 +1,12 @@
 import {
     ConflictException,
+    Inject,
     Injectable,
     NotFoundException,
     UnauthorizedException,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { InjectModel } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
 import { Author, type AuthorModel } from '../schemas/author.schema';
@@ -15,10 +18,14 @@ import { Types } from 'mongoose';
 
 @Injectable()
 export class AuthorService {
+    private readonly cacheTTL = 300;
+
     constructor(
         @InjectModel(Author.name)
         private readonly authorModel: AuthorModel,
         private readonly jwtService: JwtService,
+        @Inject(CACHE_MANAGER)
+        private readonly cacheManager: Cache,
     ) {}
 
     async signup(createAuthorDto: CreateAuthorDto) {
@@ -74,6 +81,12 @@ export class AuthorService {
     }
 
     async findOne(id: string) {
+        const cacheKey = `author:profile:${id}`;
+        const cached = await this.cacheManager.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
+
         const user = await this.authorModel
             .findOne(
                 { _id: id, deletedAt: null },
@@ -85,6 +98,7 @@ export class AuthorService {
             throw new NotFoundException('Author not found');
         }
 
+        await this.cacheManager.set(cacheKey, user, this.cacheTTL);
         return user;
     }
 
@@ -113,6 +127,8 @@ export class AuthorService {
             throw new NotFoundException('Author not found or already deleted');
         }
 
+        await this.cacheManager.del(`author:profile:${id}`);
+
         const result = author.toObject();
         return { ...result, password: undefined };
     }
@@ -131,6 +147,8 @@ export class AuthorService {
                 'Author not found or already deleted',
             );
         }
+
+        await this.cacheManager.del(`author:profile:${id}`);
 
         return {
             message: 'Author deleted successfully',

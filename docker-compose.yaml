@@ -5,12 +5,20 @@ services:
     build: .
     environment:
       - PORT=7777
+      - THROTTLE_TTL=60000
+      - THROTTLE_LIMIT=10
       - MONGO_URI=mongodb://mongoroot:testpassword@mongo-database:27017/library-management?authSource=admin
-      - JWT_SECRET=6f6sd5f65sd6f56
+      - JWT_SECRET=6f6sd5f65sd6f561
+      - CORS_ORIGIN=*
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+      - REDIS_TTL=3000
+      - REDIS_PASSWORD=testpassword
     ports:
       - "7777:7777"
     depends_on:
       - mongo-database
+      - redis-cache
     volumes:
       - .:/app
     networks:
@@ -29,8 +37,30 @@ services:
     networks:
       - lm-network
 
+  redis-cache:
+    image: redis:8.6.2-alpine
+    container_name: redis-cache
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass testpassword --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - lm-network
+  
+  redisinsight:
+    image: redis/redisinsight:latest
+    ports:
+      - "8001:8001"
+    depends_on:
+      - redis-cache
+    networks:
+      - lm-network
+
 volumes:
   mongo-data:
+  redis_data:
 
 networks:
   lm-network:
