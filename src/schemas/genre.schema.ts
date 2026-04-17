@@ -11,8 +11,19 @@ export class Genre {
 
     @Prop({ type: Types.ObjectId, ref: 'Author', required: true })
     declare creator: Types.ObjectId;
+
+    @Prop({ default: null })
+    deletedAt?: Date;
 }
 
 export const GenreSchema = SchemaFactory.createForClass(Genre);
 export type GenreModel = Model<HydratedDocument<Genre>>;
-GenreSchema.index({ creator: 1, name: 1 }, { unique: true });
+GenreSchema.index(
+    { creator: 1, name: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            deletedAt: null,
+        },
+    },
+);

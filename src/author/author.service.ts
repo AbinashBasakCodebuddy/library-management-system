@@ -1,6 +1,7 @@
 import {
     ConflictException,
     Injectable,
+    NotFoundException,
     UnauthorizedException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -10,6 +11,7 @@ import { CreateAuthorDto } from './dto/create-author.dto';
 import { LoginAuthorDto } from './dto/login-author.dto';
 import { UpdateAuthorDto } from './dto/update-author.dto';
 import bcryptjs from 'bcryptjs';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class AuthorService {
@@ -21,7 +23,7 @@ export class AuthorService {
 
     async signup(createAuthorDto: CreateAuthorDto) {
         const existingAuthor = await this.authorModel
-            .findOne({ email: createAuthorDto.email })
+            .findOne({ email: createAuthorDto.email, deletedAt: null })
             .exec();
 
         if (existingAuthor) {
@@ -43,7 +45,7 @@ export class AuthorService {
 
     async login(loginAuthorDto: LoginAuthorDto) {
         const author = await this.authorModel
-            .findOne({ email: loginAuthorDto.email })
+            .findOne({ email: loginAuthorDto.email, deletedAt: null })
             .exec();
 
         if (!author) {
@@ -66,20 +68,72 @@ export class AuthorService {
     }
 
     findAll() {
-        return this.authorModel.find({}, { password: 0 }).exec();
-    }
-
-    findOne(id: string) {
-        return this.authorModel.findById(id, { password: 0 }).exec();
-    }
-
-    update(id: string, updateAuthorDto: UpdateAuthorDto) {
         return this.authorModel
-            .findByIdAndUpdate(id, updateAuthorDto, { new: true })
+            .find({ deletedAt: null }, { password: 0, deletedAt: 0 })
             .exec();
     }
 
-    remove(id: string) {
-        return this.authorModel.findByIdAndDelete(id).exec();
+    async findOne(id: string) {
+        const user = await this.authorModel
+            .findOne(
+                { _id: id, deletedAt: null },
+                { password: 0, deletedAt: 0 },
+            )
+            .exec();
+
+        if (!user) {
+            throw new NotFoundException('Author not found');
+        }
+
+        return user;
+    }
+
+    async update(id: string, updateAuthorDto: UpdateAuthorDto) {
+        if (updateAuthorDto.password) {
+            updateAuthorDto.password = await bcryptjs.hash(
+                updateAuthorDto.password,
+                10,
+            );
+        }
+
+        const author = await this.authorModel
+            .findOneAndUpdate(
+                {
+                    _id: new Types.ObjectId(id),
+                    deletedAt: null,
+                },
+                updateAuthorDto,
+                {
+                    new: true,
+                },
+            )
+            .exec();
+
+        if (!author) {
+            throw new NotFoundException('Author not found or already deleted');
+        }
+
+        const result = author.toObject();
+        return { ...result, password: undefined };
+    }
+
+    async remove(id: string) {
+        const author = await this.authorModel
+            .findOneAndUpdate(
+                { _id: id, deletedAt: null },
+                { deletedAt: new Date() },
+                { new: true },
+            )
+            .exec();
+
+        if (!author) {
+            throw new UnauthorizedException(
+                'Author not found or already deleted',
+            );
+        }
+
+        return {
+            message: 'Author deleted successfully',
+        };
     }
 }

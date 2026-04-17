@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+    BadRequestException,
+    Injectable,
+    NotFoundException,
+} from '@nestjs/common';
 import { CreateBookDto } from './dto/create-book.dto';
 import { UpdateBookDto } from './dto/update-book.dto';
 import { Book, type BookModel } from 'src/schemas/book.schema';
@@ -19,15 +23,19 @@ export class BookService {
 
     private async checkGenresExistAndBelongToUser(
         genreIds: string[],
-        userId: string,
+        userId: Types.ObjectId,
     ): Promise<void> {
         for (const genreId of genreIds) {
             const genre = await this.genreModel
-                .findOne({ _id: genreId, creator: userId })
+                .findOne({
+                    _id: new Types.ObjectId(genreId),
+                    creator: userId,
+                    deletedAt: null,
+                })
                 .exec();
 
             if (!genre) {
-                throw new BadRequestException(
+                throw new NotFoundException(
                     `Genre with ID ${genreId} not found or not owned by you`,
                 );
             }
@@ -37,7 +45,10 @@ export class BookService {
     async create(createBookDto: CreateBookDto, userId: string) {
         // check for duplicate title for the same author
         const existingBook = await this.bookModel
-            .findOne({ title: createBookDto.title, author: userId })
+            .findOne({
+                title: createBookDto.title,
+                author: new Types.ObjectId(userId),
+            })
             .exec();
 
         if (existingBook) {
@@ -49,19 +60,23 @@ export class BookService {
         // check if all genres exist and belong to the user
         await this.checkGenresExistAndBelongToUser(
             createBookDto.genres,
-            userId,
+            new Types.ObjectId(userId),
         );
 
         return this.bookModel.create({
             title: createBookDto.title,
             author: new Types.ObjectId(userId),
-            genres: createBookDto.genres,
+            genres: createBookDto.genres.map(
+                (genreId) => new Types.ObjectId(genreId),
+            ),
         });
     }
 
     async getPublicBooks(payload: GetBookDto) {
         const matchStage: PipelineStage.Match = {
-            $match: {},
+            $match: {
+                deletedAt: null,
+            },
         };
 
         if (payload.bookName) {
@@ -70,13 +85,16 @@ export class BookService {
                 $options: 'i',
             };
         }
+
         if (payload.authorName) {
             const authorList = await this.authorModel.find({
                 name: { $regex: payload.authorName, $options: 'i' },
+                deletedAt: null,
             });
             const authorIds = authorList.map((author) => author._id);
             matchStage.$match.author = { $in: authorIds };
         }
+
         if (payload.genres) {
             const genresArray = payload.genres
                 .split(',')
@@ -140,6 +158,7 @@ export class BookService {
             {
                 $match: {
                     author: new Types.ObjectId(userId),
+                    deletedAt: null,
                 },
             },
             {
@@ -197,6 +216,7 @@ export class BookService {
                 $match: {
                     _id: new Types.ObjectId(id),
                     author: new Types.ObjectId(userId),
+                    deletedAt: null,
                 },
             },
             { $limit: 1 },
@@ -249,7 +269,7 @@ export class BookService {
         ]);
 
         if (book.length === 0) {
-            throw new BadRequestException('Book not found or access denied');
+            throw new NotFoundException('Book not found or access denied');
         }
 
         return book[0];
@@ -259,17 +279,18 @@ export class BookService {
         const book = await this.bookModel.findOne({
             _id: new Types.ObjectId(id),
             author: new Types.ObjectId(authorId),
+            deletedAt: null,
         });
 
         if (!book) {
-            throw new BadRequestException('Book not found or access denied');
+            throw new NotFoundException('Book not found or access denied');
         }
 
         if (updateBookDto.genres) {
             // check if all genres exist and belong to the user
             await this.checkGenresExistAndBelongToUser(
                 updateBookDto.genres,
-                authorId,
+                new Types.ObjectId(authorId),
             );
 
             book.genres = updateBookDto.genres.map(
@@ -282,8 +303,9 @@ export class BookService {
             const existingBook = await this.bookModel
                 .findOne({
                     title: updateBookDto.title,
-                    author: authorId,
-                    _id: { $ne: id },
+                    author: new Types.ObjectId(authorId),
+                    _id: { $ne: new Types.ObjectId(id) },
+                    deletedAt: null,
                 })
                 .exec();
 
@@ -302,13 +324,19 @@ export class BookService {
     }
 
     async remove(id: string, authorId: string) {
-        const book = await this.bookModel.findOneAndDelete({
-            _id: new Types.ObjectId(id),
-            author: new Types.ObjectId(authorId),
-        });
+        const book = await this.bookModel.findOneAndUpdate(
+            {
+                _id: new Types.ObjectId(id),
+                author: new Types.ObjectId(authorId),
+                deletedAt: null,
+            },
+            {
+                deletedAt: new Date(),
+            },
+        );
 
         if (!book) {
-            throw new BadRequestException('Book not found or access denied');
+            throw new NotFoundException('Book not found or access denied');
         }
 
         return { message: 'Book deleted successfully' };

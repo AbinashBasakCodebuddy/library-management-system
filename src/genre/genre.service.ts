@@ -21,7 +21,11 @@ export class GenreService {
 
     async create(createGenreDto: CreateGenreDto, authorId: string) {
         const existingGenre = await this.genreModel
-            .findOne({ name: createGenreDto.name, creator: authorId })
+            .findOne({
+                name: createGenreDto.name,
+                creator: new Types.ObjectId(authorId),
+                deletedAt: null,
+            })
             .exec();
 
         if (existingGenre) {
@@ -32,17 +36,23 @@ export class GenreService {
 
         return this.genreModel.create({
             ...createGenreDto,
-            creator: authorId,
+            creator: new Types.ObjectId(authorId),
         });
     }
 
     findAll(authorId: string) {
-        return this.genreModel.find({ creator: authorId }).exec();
+        return this.genreModel
+            .find({ creator: new Types.ObjectId(authorId), deletedAt: null })
+            .exec();
     }
 
     async findOne(id: string, authorId: string) {
         const genre = await this.genreModel
-            .findOne({ _id: id, creator: authorId })
+            .findOne({
+                _id: new Types.ObjectId(id),
+                creator: new Types.ObjectId(authorId),
+                deletedAt: null,
+            })
             .exec();
 
         if (!genre) {
@@ -54,9 +64,17 @@ export class GenreService {
 
     async update(id: string, updateGenreDto: UpdateGenreDto, authorId: string) {
         const genre = await this.genreModel
-            .findOneAndUpdate({ _id: id, creator: authorId }, updateGenreDto, {
-                new: true,
-            })
+            .findOneAndUpdate(
+                {
+                    _id: new Types.ObjectId(id),
+                    creator: new Types.ObjectId(authorId),
+                    deletedAt: null,
+                },
+                updateGenreDto,
+                {
+                    new: true,
+                },
+            )
             .exec();
 
         if (!genre) {
@@ -69,6 +87,7 @@ export class GenreService {
     async remove(id: string, authorId: string) {
         const bookCount = await this.bookModel.findOne({
             genres: new Types.ObjectId(id),
+            deletedAt: null,
         });
 
         if (bookCount) {
@@ -78,7 +97,17 @@ export class GenreService {
         }
 
         const genre = await this.genreModel
-            .findOneAndDelete({ _id: id, creator: authorId })
+            .findOneAndUpdate(
+                {
+                    _id: new Types.ObjectId(id),
+                    creator: new Types.ObjectId(authorId),
+                    deletedAt: null,
+                },
+                { deletedAt: new Date() },
+                {
+                    new: true,
+                },
+            )
             .exec();
 
         if (!genre) {

@@ -17,6 +17,9 @@ export class Author {
 
     @Prop()
     bio?: string;
+
+    @Prop({ default: null })
+    deletedAt?: Date;
 }
 
 export const AuthorSchema = SchemaFactory.createForClass(Author);
