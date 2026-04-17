@@ -12,7 +12,7 @@ import { PrivateGuard } from './private.guard';
             imports: [ConfigModule],
             inject: [ConfigService],
             useFactory: (configService: ConfigService) => ({
-                secret: configService.get<string>('JWT_SECRET', ''),
+                secret: configService.getOrThrow<string>('auth.jwtSecret'),
                 signOptions: { expiresIn: '3600s' },
             }),
         }),
