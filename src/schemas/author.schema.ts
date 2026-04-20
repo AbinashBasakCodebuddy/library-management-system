@@ -24,3 +24,12 @@ export class Author {
 
 export const AuthorSchema = SchemaFactory.createForClass(Author);
 export type AuthorModel = Model<HydratedDocument<Author>>;
+AuthorSchema.index(
+    { email: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            deletedAt: null,
+        },
+    },
+);
