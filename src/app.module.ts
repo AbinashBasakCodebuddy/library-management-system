@@ -8,7 +8,6 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { MongooseModule } from '@nestjs/mongoose';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { AuthorModule } from './author/author.module';
@@ -21,6 +20,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { RequestLoggerService } from './common/loggers/request-logger.service';
 import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 import { redisStore } from 'cache-manager-redis-store';
+import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
     imports: [
@@ -39,7 +39,7 @@ import { redisStore } from 'cache-manager-redis-store';
             useFactory: (configService: ConfigService) => ({
                 uri: configService.get<string>('database.mongoUri'),
             }),
-        }),
+        PrismaModule,
         CacheModule.registerAsync({
             imports: [ConfigModule],
             inject: [ConfigService],

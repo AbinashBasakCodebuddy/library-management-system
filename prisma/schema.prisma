@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mongodb"
+}
+
+model Author {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  name     String
+  email    String  @unique
+  password String
+  address  String?
+  bio      String?
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  books  Book[]  @relation("AuthorBooks")
+  genres Genre[] @relation("AuthorGenres")
+}
+
+model Book {
+  id    String @id @default(auto()) @map("_id") @db.ObjectId
+  title String
+
+  authorId String @db.ObjectId
+  author   Author @relation(fields: [authorId], references: [id], name: "AuthorBooks")
+
+  genres String[] @db.ObjectId
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // @@unique([title, authorId])
+  bookGenres BookGenre[]
+}
+
+model Genre {
+  id       String  @id @default(auto()) @map("_id") @db.ObjectId
+  name     String
+  isPublic Boolean @default(false)
+
+  creatorId String @db.ObjectId
+  creator   Author @relation(fields: [creatorId], references: [id], name: "AuthorGenres")
+
+  books String[] @db.ObjectId
+
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // @@unique([creatorId, name], map: "genre_creator_name_unique")
+  bookGenres BookGenre[]
+}
+
+model BookGenre {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  bookId  String @db.ObjectId
+  genreId String @db.ObjectId
+
+  book  Book  @relation(fields: [bookId], references: [id])
+  genre Genre @relation(fields: [genreId], references: [id])
+
+  @@unique([bookId, genreId])
+}

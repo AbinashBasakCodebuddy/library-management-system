@@ -4,28 +4,44 @@ import {
     Injectable,
     NotFoundException,
 } from '@nestjs/common';
-import { type Cache } from 'cache-manager';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { CreateBookDto } from './dto/create-book.dto';
 import { UpdateBookDto } from './dto/update-book.dto';
-import { Book, type BookModel } from 'src/schemas/book.schema';
-import { InjectModel } from '@nestjs/mongoose';
-import { Genre, type GenreModel } from 'src/schemas/genre.schema';
-import { PipelineStage, Types } from 'mongoose';
 import { GetBookDto } from './dto/get-book.dto';
-import { Author, type AuthorModel } from 'src/schemas/author.schema';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { PrismaService } from '../prisma/prisma.service';
+import { createHash } from 'crypto';
 
 @Injectable()
 export class BookService {
     private readonly cacheTTL = 300;
 
     constructor(
-        @InjectModel(Book.name) private readonly bookModel: BookModel,
-        @InjectModel(Author.name) private readonly authorModel: AuthorModel,
-        @InjectModel(Genre.name)
-        private readonly genreModel: GenreModel,
+        private readonly prisma: PrismaService,
         @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     ) {}
+
+    private async getCached<T>(
+        key: string,
+        factory: () => Promise<T>,
+        ttl = this.cacheTTL,
+    ): Promise<T> {
+        const cached = await this.cacheManager.get<T>(key);
+        if (cached) {
+            return cached;
+        }
+
+        const result = await factory();
+        await this.cacheManager.set(key, result, ttl);
+        return result;
+    }
+
+    private buildPublicListKey(payload: GetBookDto) {
+        const hash = createHash('sha256')
+            .update(JSON.stringify(payload))
+            .digest('hex');
+        return `book:public:list:${hash}`;
+    }
 
     private async invalidateUserBookCache(userId: string, bookId?: string) {
         await this.cacheManager.del(`book:list:${userId}`);
@@ -36,33 +52,31 @@ export class BookService {
 
     private async checkGenresExistAndBelongToUser(
         genreIds: string[],
-        userId: Types.ObjectId,
+        userId: string,
     ): Promise<void> {
-        for (const genreId of genreIds) {
-            const genre = await this.genreModel
-                .findOne({
-                    _id: new Types.ObjectId(genreId),
-                    creator: userId,
-                    deletedAt: null,
-                })
-                .exec();
+        const genres = await this.prisma.genre.findMany({
+            where: {
+                id: { in: genreIds },
+                creatorId: userId,
+                deletedAt: null,
+            },
+        });
 
-            if (!genre) {
-                throw new NotFoundException(
-                    `Genre with ID ${genreId} not found or not owned by you`,
-                );
-            }
+        if (genres.length !== genreIds.length) {
+            throw new NotFoundException(
+                'One or more genres were not found or not owned by you',
+            );
         }
     }
 
     async create(createBookDto: CreateBookDto, userId: string) {
-        // check for duplicate title for the same author
-        const existingBook = await this.bookModel
-            .findOne({
+        const existingBook = await this.prisma.book.findFirst({
+            where: {
                 title: createBookDto.title,
-                author: new Types.ObjectId(userId),
-            })
-            .exec();
+                authorId: userId,
+                deletedAt: null,
+            },
+        });
 
         if (existingBook) {
             throw new BadRequestException(
@@ -70,18 +84,14 @@ export class BookService {
             );
         }
 
-        // check if all genres exist and belong to the user
-        await this.checkGenresExistAndBelongToUser(
-            createBookDto.genres,
-            new Types.ObjectId(userId),
-        );
+        await this.checkGenresExistAndBelongToUser(createBookDto.genres, userId);
 
-        const book = await this.bookModel.create({
-            title: createBookDto.title,
-            author: new Types.ObjectId(userId),
-            genres: createBookDto.genres.map(
-                (genreId) => new Types.ObjectId(genreId),
-            ),
+        const book = await this.prisma.book.create({
+            data: {
+                title: createBookDto.title,
+                authorId: userId,
+                genres: createBookDto.genres,
+            },
         });
 
         await this.invalidateUserBookCache(userId);
@@ -89,286 +99,214 @@ export class BookService {
     }
 
     async getPublicBooks(payload: GetBookDto) {
-        const matchStage: PipelineStage.Match = {
-            $match: {
+        const cacheKey = this.buildPublicListKey(payload);
+        return this.getCached(cacheKey, async () => {
+            const where: any = {
                 deletedAt: null,
-            },
-        };
-
-        if (payload.bookName) {
-            matchStage.$match.title = {
-                $regex: payload.bookName,
-                $options: 'i',
             };
-        }
 
-        if (payload.authorName) {
-            const authorList = await this.authorModel.find({
-                name: { $regex: payload.authorName, $options: 'i' },
-                deletedAt: null,
-            });
-            const authorIds = authorList.map((author) => author._id);
-            matchStage.$match.author = { $in: authorIds };
-        }
+            if (payload.bookName) {
+                where.title = { contains: payload.bookName, mode: 'insensitive' };
+            }
 
-        if (payload.genres) {
-            const genresArray = payload.genres
-                .split(',')
-                .map((genre) => new Types.ObjectId(genre.trim()));
-            matchStage.$match.genres = { $in: genresArray };
-        }
-
-        const bookList = await this.bookModel.aggregate<Book>([
-            matchStage,
-            {
-                $lookup: {
-                    from: 'authors',
-                    localField: 'author',
-                    foreignField: '_id',
-                    as: 'author',
-                    pipeline: [
-                        {
-                            $project: {
-                                name: 1,
-                                _id: 0,
-                            },
+            if (payload.authorName) {
+                const authors = await this.prisma.author.findMany({
+                    where: {
+                        name: {
+                            contains: payload.authorName,
+                            mode: 'insensitive',
                         },
-                    ],
-                },
-            },
-            {
-                $set: {
-                    author: {
-                        $arrayElemAt: ['$author.name', 0],
+                        deletedAt: null,
                     },
+                    select: { id: true },
+                });
+                if (authors.length === 0) {
+                    return [];
+                }
+                where.authorId = { in: authors.map((author) => author.id) };
+            }
+
+            if (payload.genres) {
+                where.genres = {
+                    hasEvery: payload.genres
+                        .split(',')
+                        .map((genre) => genre.trim()),
+                };
+            }
+
+            const books = await this.prisma.book.findMany({
+                where,
+                include: {
+                    author: { select: { name: true } },
                 },
-            },
-            {
-                $lookup: {
-                    from: 'genres',
-                    localField: 'genres',
-                    foreignField: '_id',
-                    as: 'genres',
-                    pipeline: [
-                        {
-                            $project: { name: 1 },
-                        },
-                    ],
-                },
-            },
-            {
-                $project: {
-                    _id: 1,
-                    title: 1,
-                    author: 1,
-                    genres: 1,
-                    createdAt: 1,
-                    updatedAt: 1,
-                },
-            },
-        ]);
-        return bookList;
+            });
+
+            const genreIds = Array.from(
+                new Set(books.flatMap((book) => book.genres ?? [])),
+            );
+            const genres = await this.prisma.genre.findMany({
+                where: { id: { in: genreIds } },
+                select: { id: true, name: true },
+            });
+            const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+
+            return books.map((book) => ({
+                ...book,
+                author: book.author?.name,
+                genres: book.genres.map(
+                    (genreId) => genreMap.get(genreId) ?? genreId,
+                ),
+            }));
+        });
     }
 
-    async findAll(userId: string) {
+    findAll(userId: string) {
         const cacheKey = `book:list:${userId}`;
-        const cached = await this.cacheManager.get(cacheKey);
-        if (cached) {
-            return cached;
-        }
-
-        const bookList = await this.bookModel.aggregate<Book>([
-            {
-                $match: {
-                    author: new Types.ObjectId(userId),
+        return this.getCached(cacheKey, async () => {
+            const books = await this.prisma.book.findMany({
+                where: {
+                    authorId: userId,
                     deletedAt: null,
                 },
-            },
-            {
-                $lookup: {
-                    from: 'authors',
-                    localField: 'author',
-                    foreignField: '_id',
-                    as: 'author',
-                    pipeline: [
-                        {
-                            $project: {
-                                name: 1,
-                                _id: 0,
-                            },
-                        },
-                    ],
+                include: {
+                    author: { select: { name: true } },
                 },
-            },
-            {
-                $set: {
-                    author: {
-                        $arrayElemAt: ['$author.name', 0],
-                    },
-                },
-            },
-            {
-                $lookup: {
-                    from: 'genres',
-                    localField: 'genres',
-                    foreignField: '_id',
-                    as: 'genres',
-                    pipeline: [
-                        {
-                            $project: { name: 1 },
-                        },
-                    ],
-                },
-            },
-            {
-                $project: {
-                    _id: 1,
-                    title: 1,
-                    author: 1,
-                    genres: 1,
-                    createdAt: 1,
-                    updatedAt: 1,
-                },
-            },
-        ]);
-        await this.cacheManager.set(cacheKey, bookList, this.cacheTTL);
-        return bookList;
+            });
+
+            const genreIds = Array.from(
+                new Set(books.flatMap((book) => book.genres ?? [])),
+            );
+            const genres = await this.prisma.genre.findMany({
+                where: { id: { in: genreIds } },
+                select: { id: true, name: true },
+            });
+            const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+
+            return books.map((book) => ({
+                ...book,
+                author: book.author?.name,
+                genres: book.genres.map(
+                    (genreId) => genreMap.get(genreId) ?? genreId,
+                ),
+            }));
+        });
     }
 
     async findOne(id: string, userId: string) {
         const cacheKey = `book:detail:${userId}:${id}`;
-        const cached = await this.cacheManager.get(cacheKey);
-        if (cached) {
-            return cached;
-        }
-
-        const book = await this.bookModel.aggregate<Book>([
-            {
-                $match: {
-                    _id: new Types.ObjectId(id),
-                    author: new Types.ObjectId(userId),
+        return this.getCached(cacheKey, async () => {
+            const book = await this.prisma.book.findFirst({
+                where: {
+                    id,
+                    authorId: userId,
                     deletedAt: null,
                 },
-            },
-            { $limit: 1 },
-            {
-                $lookup: {
-                    from: 'authors',
-                    localField: 'author',
-                    foreignField: '_id',
-                    as: 'author',
-                    pipeline: [
-                        {
-                            $project: {
-                                name: 1,
-                                _id: 0,
-                            },
-                        },
-                    ],
+                include: {
+                    author: { select: { name: true } },
                 },
-            },
-            {
-                $set: {
-                    author: {
-                        $arrayElemAt: ['$author.name', 0],
-                    },
-                },
-            },
-            {
-                $lookup: {
-                    from: 'genres',
-                    localField: 'genres',
-                    foreignField: '_id',
-                    as: 'genres',
-                    pipeline: [
-                        {
-                            $project: { name: 1 },
-                        },
-                    ],
-                },
-            },
-            {
-                $project: {
-                    _id: 1,
-                    title: 1,
-                    author: 1,
-                    genres: 1,
-                    createdAt: 1,
-                    updatedAt: 1,
-                },
-            },
-        ]);
+            });
 
-        if (book.length === 0) {
-            throw new NotFoundException('Book not found or access denied');
-        }
+            if (!book) {
+                throw new NotFoundException('Book not found or access denied');
+            }
 
-        await this.cacheManager.set(cacheKey, book[0], this.cacheTTL);
-        return book[0];
+            const genres = await this.prisma.genre.findMany({
+                where: { id: { in: book.genres } },
+                select: { id: true, name: true },
+            });
+            const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+
+            return {
+                ...book,
+                author: book.author?.name,
+                genres: book.genres.map(
+                    (genreId) => genreMap.get(genreId) ?? genreId,
+                ),
+            };
+        });
     }
 
     async update(id: string, updateBookDto: UpdateBookDto, authorId: string) {
-        const book = await this.bookModel.findOne({
-            _id: new Types.ObjectId(id),
-            author: new Types.ObjectId(authorId),
-            deletedAt: null,
+        const existingBook = await this.prisma.book.findFirst({
+            where: {
+                id,
+                authorId,
+                deletedAt: null,
+            },
         });
 
-        if (!book) {
+        if (!existingBook) {
             throw new NotFoundException('Book not found or access denied');
         }
 
         if (updateBookDto.genres) {
-            // check if all genres exist and belong to the user
             await this.checkGenresExistAndBelongToUser(
                 updateBookDto.genres,
-                new Types.ObjectId(authorId),
-            );
-
-            book.genres = updateBookDto.genres.map(
-                (genreId) => new Types.ObjectId(genreId),
+                authorId,
             );
         }
 
         if (updateBookDto.title) {
-            // check for duplicate title for the same author
-            const existingBook = await this.bookModel
-                .findOne({
+            const duplicateBook = await this.prisma.book.findFirst({
+                where: {
                     title: updateBookDto.title,
-                    author: new Types.ObjectId(authorId),
-                    _id: { $ne: new Types.ObjectId(id) },
+                    authorId,
                     deletedAt: null,
-                })
-                .exec();
+                    id: { not: id },
+                },
+            });
 
-            if (existingBook) {
+            if (duplicateBook) {
                 throw new BadRequestException(
                     'You already have a book with this title',
                 );
             }
-
-            book.title = updateBookDto.title;
         }
 
-        await book.save();
+        const updateData: any = {};
+        if (updateBookDto.title !== undefined) {
+            updateData.title = updateBookDto.title;
+        }
+        if (updateBookDto.genres !== undefined) {
+            updateData.genres = updateBookDto.genres;
+        }
+
+        const updatedBook = await this.prisma.book.update({
+            where: { id },
+            data: updateData,
+            include: {
+                author: { select: { name: true } },
+            },
+        });
+
         await this.invalidateUserBookCache(authorId, id);
 
-        return book;
+        const genres = await this.prisma.genre.findMany({
+            where: { id: { in: updatedBook.genres } },
+            select: { id: true, name: true },
+        });
+        const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+
+        return {
+            ...updatedBook,
+            author: updatedBook.author?.name,
+            genres: updatedBook.genres.map(
+                (genreId) => genreMap.get(genreId) ?? genreId,
+            ),
+        };
     }
 
     async remove(id: string, authorId: string) {
-        const book = await this.bookModel.findOneAndUpdate(
-            {
-                _id: new Types.ObjectId(id),
-                author: new Types.ObjectId(authorId),
+        const deleted = await this.prisma.book.updateMany({
+            where: {
+                id,
+                authorId,
                 deletedAt: null,
             },
-            {
-                deletedAt: new Date(),
-            },
-        );
+            data: { deletedAt: new Date() },
+        });
 
-        if (!book) {
+        if (deleted.count === 0) {
             throw new NotFoundException('Book not found or access denied');
         }
 

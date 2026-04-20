@@ -9,29 +9,30 @@ import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { InjectModel } from '@nestjs/mongoose';
 import { JwtService } from '@nestjs/jwt';
-import { Author, type AuthorModel } from '../schemas/author.schema';
 import { CreateAuthorDto } from './dto/create-author.dto';
 import { LoginAuthorDto } from './dto/login-author.dto';
 import { UpdateAuthorDto } from './dto/update-author.dto';
 import bcryptjs from 'bcryptjs';
-import { Types } from 'mongoose';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthorService {
     private readonly cacheTTL = 300;
 
     constructor(
-        @InjectModel(Author.name)
-        private readonly authorModel: AuthorModel,
+        private readonly prisma: PrismaService,
         private readonly jwtService: JwtService,
         @Inject(CACHE_MANAGER)
         private readonly cacheManager: Cache,
     ) {}
 
     async signup(createAuthorDto: CreateAuthorDto) {
-        const existingAuthor = await this.authorModel
-            .findOne({ email: createAuthorDto.email, deletedAt: null })
-            .exec();
+        const existingAuthor = await this.prisma.author.findFirst({
+            where: {
+                email: createAuthorDto.email,
+                deletedAt: null,
+            },
+        });
 
         if (existingAuthor) {
             throw new ConflictException('Email already registered');
@@ -41,19 +42,27 @@ export class AuthorService {
             createAuthorDto.password,
             10,
         );
-        const author = await this.authorModel.create({
-            ...createAuthorDto,
-            password: hashedPassword,
+        const author = await this.prisma.author.create({
+            data: {
+                name: createAuthorDto.name,
+                email: createAuthorDto.email,
+                address: createAuthorDto.address,
+                password: hashedPassword,
+                bio: createAuthorDto.bio,
+            },
         });
 
-        const result = author.toObject();
-        return { ...result, password: undefined };
+        const { password, ...result } = author;
+        return result;
     }
 
     async login(loginAuthorDto: LoginAuthorDto) {
-        const author = await this.authorModel
-            .findOne({ email: loginAuthorDto.email, deletedAt: null })
-            .exec();
+        const author = await this.prisma.author.findFirst({
+            where: {
+                email: loginAuthorDto.email,
+                deletedAt: null,
+            },
+        });
 
         if (!author) {
             throw new UnauthorizedException('Invalid credentials');
@@ -68,16 +77,25 @@ export class AuthorService {
             throw new UnauthorizedException('Invalid credentials');
         }
 
-        const payload = { sub: author._id.toString(), email: author.email };
+        const payload = { sub: author.id, email: author.email };
         return {
             access_token: this.jwtService.sign(payload),
         };
     }
 
     findAll() {
-        return this.authorModel
-            .find({ deletedAt: null }, { password: 0, deletedAt: 0 })
-            .exec();
+        return this.prisma.author.findMany({
+            where: { deletedAt: null },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                address: true,
+                bio: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
     }
 
     async findOne(id: string) {
@@ -87,12 +105,18 @@ export class AuthorService {
             return cached;
         }
 
-        const user = await this.authorModel
-            .findOne(
-                { _id: id, deletedAt: null },
-                { password: 0, deletedAt: 0 },
-            )
-            .exec();
+        const user = await this.prisma.author.findFirst({
+            where: { id, deletedAt: null },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                address: true,
+                bio: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
 
         if (!user) {
             throw new NotFoundException('Author not found');
@@ -110,39 +134,49 @@ export class AuthorService {
             );
         }
 
-        const author = await this.authorModel
-            .findOneAndUpdate(
-                {
-                    _id: new Types.ObjectId(id),
-                    deletedAt: null,
-                },
-                updateAuthorDto,
-                {
-                    new: true,
-                },
-            )
-            .exec();
+        const author = await this.prisma.author.updateOne({
+            where: {
+                id,
+                deletedAt: null,
+            },
+            data: {
+                name: updateAuthorDto.name,
+                email: updateAuthorDto.email,
+                address: updateAuthorDto.address,
+                bio: updateAuthorDto.bio,
+                password: updateAuthorDto.password,
+            },
+        });
 
-        if (!author) {
+        if (author.count === 0) {
             throw new NotFoundException('Author not found or already deleted');
         }
 
         await this.cacheManager.del(`author:profile:${id}`);
 
-        const result = author.toObject();
-        return { ...result, password: undefined };
+        const updated = await this.prisma.author.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                address: true,
+                bio: true,
+                createdAt: true,
+                updatedAt: true,
+            },
+        });
+
+        return updated;
     }
 
     async remove(id: string) {
-        const author = await this.authorModel
-            .findOneAndUpdate(
-                { _id: id, deletedAt: null },
-                { deletedAt: new Date() },
-                { new: true },
-            )
-            .exec();
+        const author = await this.prisma.author.updateMany({
+            where: { id, deletedAt: null },
+            data: { deletedAt: new Date() },
+        });
 
-        if (!author) {
+        if (author.count === 0) {
             throw new UnauthorizedException(
                 'Author not found or already deleted',
             );

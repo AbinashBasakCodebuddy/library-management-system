@@ -9,11 +9,11 @@ export class Author {
     @Prop({ required: true })
     declare email: string;
 
-    @Prop()
-    declare address: string;
-
     @Prop({ required: true })
     declare password: string;
+
+    @Prop()
+    declare address: string;
 
     @Prop()
     bio?: string;
