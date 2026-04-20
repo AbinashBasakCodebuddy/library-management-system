@@ -7,7 +7,7 @@ services:
       - PORT=7777
       - THROTTLE_TTL=60000
       - THROTTLE_LIMIT=10
-      - MONGO_URI=mongodb://mongoroot:testpassword@mongo-database:27017/library-management?authSource=admin
+      - MONGO_URI=mongodb+srv://mongoroot:testpassword@cluster0.zmisukd.mongodb.net/library-management?appName=Cluster0
       - JWT_SECRET=6f6sd5f65sd6f561
       - CORS_ORIGIN=*
       - REDIS_HOST=redis-cache

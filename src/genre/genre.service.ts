@@ -5,35 +5,29 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { type Cache } from 'cache-manager';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, HydratedDocument, Types } from 'mongoose';
-import { Genre } from '../schemas/genre.schema';
-import { Book, type BookModel } from '../schemas/book.schema';
 import { CreateGenreDto } from './dto/create-genre.dto';
 import { UpdateGenreDto } from './dto/update-genre.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Injectable()
 export class GenreService {
     private readonly cacheTTL = 300;
 
     constructor(
-        @InjectModel(Genre.name)
-        private readonly genreModel: Model<HydratedDocument<Genre>>,
-        @InjectModel(Book.name)
-        private readonly bookModel: BookModel,
         @Inject(CACHE_MANAGER)
         private readonly cacheManager: Cache,
+        private readonly prisma: PrismaService,
     ) {}
 
     async create(createGenreDto: CreateGenreDto, authorId: string) {
-        const existingGenre = await this.genreModel
-            .findOne({
+        const existingGenre = await this.prisma.genre.findFirst({
+            where: {
                 name: createGenreDto.name,
-                creator: new Types.ObjectId(authorId),
+                creatorId: authorId,
                 deletedAt: null,
-            })
-            .exec();
+            },
+        });
 
         if (existingGenre) {
             throw new BadRequestException(
@@ -41,9 +35,12 @@ export class GenreService {
             );
         }
 
-        const genre = await this.genreModel.create({
-            ...createGenreDto,
-            creator: new Types.ObjectId(authorId),
+        const genre = await this.prisma.genre.create({
+            data: {
+                ...createGenreDto,
+                creatorId: authorId,
+                deletedAt: null,
+            },
         });
 
         await this.cacheManager.del(`genre:list:${authorId}`);
@@ -57,23 +54,25 @@ export class GenreService {
             return cached;
         }
 
-        const result = await this.genreModel
-            .find({ creator: new Types.ObjectId(authorId), deletedAt: null })
-            .exec();
+        const result = await this.prisma.genre.findMany({
+            where: {
+                creatorId: authorId,
+                deletedAt: null,
+            },
+        });
 
         await this.cacheManager.set(cacheKey, result, this.cacheTTL);
-
         return result;
     }
 
     async findOne(id: string, authorId: string) {
-        const genre = await this.genreModel
-            .findOne({
-                _id: new Types.ObjectId(id),
-                creator: new Types.ObjectId(authorId),
+        const genre = await this.prisma.genre.findFirst({
+            where: {
+                id: id,
+                creatorId: authorId,
                 deletedAt: null,
-            })
-            .exec();
+            },
+        });
 
         if (!genre) {
             throw new NotFoundException('Genre not found');
@@ -83,57 +82,57 @@ export class GenreService {
     }
 
     async update(id: string, updateGenreDto: UpdateGenreDto, authorId: string) {
-        const genre = await this.genreModel
-            .findOneAndUpdate(
-                {
-                    _id: new Types.ObjectId(id),
-                    creator: new Types.ObjectId(authorId),
-                    deletedAt: null,
-                },
-                updateGenreDto,
-                {
-                    new: true,
-                },
-            )
-            .exec();
+        const genre = await this.prisma.genre.updateMany({
+            where: {
+                id,
+                creatorId: authorId,
+                deletedAt: null,
+            },
+            data: updateGenreDto,
+        });
 
-        if (!genre) {
+        if (genre.count === 0) {
             throw new NotFoundException('Genre not found or access denied');
         }
+
+        const updated = await this.prisma.genre.findUnique({
+            where: { id },
+        });
 
         await this.cacheManager.del(`genre:list:${authorId}`);
         await this.cacheManager.del(`book:list:${authorId}`);
 
-        return genre;
+        return updated;
     }
 
     async remove(id: string, authorId: string) {
-        const bookCount = await this.bookModel.findOne({
-            genres: new Types.ObjectId(id),
-            deletedAt: null,
+        const bookExists = await this.prisma.bookGenre.findFirst({
+            where: {
+                genreId: id,
+                book: {
+                    deletedAt: null,
+                },
+            },
         });
 
-        if (bookCount) {
+        if (bookExists) {
             throw new BadRequestException(
                 'Cannot delete genre while books are associated with it',
             );
         }
 
-        const genre = await this.genreModel
-            .findOneAndUpdate(
-                {
-                    _id: new Types.ObjectId(id),
-                    creator: new Types.ObjectId(authorId),
-                    deletedAt: null,
-                },
-                { deletedAt: new Date() },
-                {
-                    new: true,
-                },
-            )
-            .exec();
+        const result = await this.prisma.genre.updateMany({
+            where: {
+                id,
+                creatorId: authorId,
+                deletedAt: null,
+            },
+            data: {
+                deletedAt: new Date(),
+            },
+        });
 
-        if (!genre) {
+        if (result.count === 0) {
             throw new NotFoundException('Genre not found or access denied');
         }
 

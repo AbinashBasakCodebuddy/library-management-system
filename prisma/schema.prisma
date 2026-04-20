@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "mongodb"
+  url      = env("MONGO_URI")
 }
 
 model Author {
@@ -31,8 +33,6 @@ model Book {
   authorId String @db.ObjectId
   author   Author @relation(fields: [authorId], references: [id], name: "AuthorBooks")
 
-  genres String[] @db.ObjectId
-
   deletedAt DateTime?
 
   createdAt DateTime @default(now())
@@ -50,14 +50,11 @@ model Genre {
   creatorId String @db.ObjectId
   creator   Author @relation(fields: [creatorId], references: [id], name: "AuthorGenres")
 
-  books String[] @db.ObjectId
-
   deletedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // @@unique([creatorId, name], map: "genre_creator_name_unique")
   bookGenres BookGenre[]
 }
 

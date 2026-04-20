@@ -33,14 +33,8 @@ import { PrismaModule } from './prisma/prisma.module';
                 allowUnknown: true,
             },
         }),
-        MongooseModule.forRootAsync({
-            imports: [ConfigModule],
-            inject: [ConfigService],
-            useFactory: (configService: ConfigService) => ({
-                uri: configService.get<string>('database.mongoUri'),
-            }),
-        PrismaModule,
         CacheModule.registerAsync({
+            isGlobal: true,
             imports: [ConfigModule],
             inject: [ConfigService],
             useFactory: async (config: ConfigService) => ({
@@ -55,6 +49,7 @@ import { PrismaModule } from './prisma/prisma.module';
                 isGlobal: true,
             }),
         }),
+        PrismaModule,
         ThrottlerModule.forRootAsync({
             imports: [ConfigModule],
             inject: [ConfigService],
