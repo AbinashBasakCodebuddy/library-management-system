@@ -84,7 +84,10 @@ export class BookService {
             );
         }
 
-        await this.checkGenresExistAndBelongToUser(createBookDto.genres, userId);
+        await this.checkGenresExistAndBelongToUser(
+            createBookDto.genres,
+            userId,
+        );
 
         const book = await this.prisma.book.create({
             data: {
@@ -106,7 +109,10 @@ export class BookService {
             };
 
             if (payload.bookName) {
-                where.title = { contains: payload.bookName, mode: 'insensitive' };
+                where.title = {
+                    contains: payload.bookName,
+                    mode: 'insensitive',
+                };
             }
 
             if (payload.authorName) {
@@ -148,7 +154,9 @@ export class BookService {
                 where: { id: { in: genreIds } },
                 select: { id: true, name: true },
             });
-            const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+            const genreMap = new Map(
+                genres.map((genre) => [genre.id, genre.name]),
+            );
 
             return books.map((book) => ({
                 ...book,
@@ -180,7 +188,9 @@ export class BookService {
                 where: { id: { in: genreIds } },
                 select: { id: true, name: true },
             });
-            const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+            const genreMap = new Map(
+                genres.map((genre) => [genre.id, genre.name]),
+            );
 
             return books.map((book) => ({
                 ...book,
@@ -214,7 +224,9 @@ export class BookService {
                 where: { id: { in: book.genres } },
                 select: { id: true, name: true },
             });
-            const genreMap = new Map(genres.map((genre) => [genre.id, genre.name]));
+            const genreMap = new Map(
+                genres.map((genre) => [genre.id, genre.name]),
+            );
 
             return {
                 ...book,
