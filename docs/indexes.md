@@ -8,10 +8,6 @@ This document explains the database indexes defined in the Mongoose schemas for 
 
 **Current Indexes:**
 
-- None defined.
-
-**Recommended Index:**
-
 ```typescript
 AuthorSchema.index(
     { email: 1 },
