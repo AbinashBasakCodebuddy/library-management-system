@@ -10,7 +10,6 @@ import { CreateBookDto } from './dto/create-book.dto';
 import { UpdateBookDto } from './dto/update-book.dto';
 import { GetBookDto } from './dto/get-book.dto';
 import { PrismaService } from '../prisma/prisma.service';
-import { createHash } from 'crypto';
 import { Prisma } from 'src/generated/prisma/client';
 
 @Injectable()
@@ -22,18 +21,8 @@ export class BookService {
         @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     ) {}
 
-    private buildPublicListKey(payload: GetBookDto) {
-        const hash = createHash('sha256')
-            .update(JSON.stringify(payload))
-            .digest('hex');
-        return `book:public:list:${hash}`;
-    }
-
-    private async invalidateUserBookCache(userId: string, bookId?: string) {
-        await this.cacheManager.del(`book:list:${userId}`);
-        if (bookId) {
-            await this.cacheManager.del(`book:detail:${userId}:${bookId}`);
-        }
+    private async invalidateUserBookCache(userId: string, bookId: string) {
+        await this.cacheManager.del(`book:detail:${userId}:${bookId}`);
     }
 
     private async checkGenresExistAndBelongToUser(
@@ -97,18 +86,10 @@ export class BookService {
                 },
             },
         });
-
-        await this.invalidateUserBookCache(userId);
         return book;
     }
 
     async getPublicBooks(payload: GetBookDto) {
-        const cacheKey = this.buildPublicListKey(payload);
-        const cached = await this.cacheManager.get(cacheKey);
-        if (cached) {
-            return cached;
-        }
-
         const where: Prisma.BookWhereInput = {
             deletedAt: null,
         };
@@ -173,17 +154,10 @@ export class BookService {
             author: book.author?.name,
             genres: book.bookGenres.map((genre) => genre.genre.name),
         }));
-        await this.cacheManager.set(cacheKey, result);
         return result;
     }
 
     async findAll(userId: string) {
-        const cacheKey = `book:list:${userId}`;
-        const cached = await this.cacheManager.get(cacheKey);
-        if (cached) {
-            return cached;
-        }
-
         const books = await this.prisma.book.findMany({
             where: {
                 authorId: userId,
@@ -208,7 +182,6 @@ export class BookService {
             author: book.author?.name,
             genres: book.bookGenres.map((genre) => genre.genre.name),
         }));
-        await this.cacheManager.set(cacheKey, result);
         return result;
     }
 
