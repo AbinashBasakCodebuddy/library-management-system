@@ -40,6 +40,8 @@ model Book {
 
   // @@unique([title, authorId])
   bookGenres BookGenre[]
+
+  @@index([authorId])
 }
 
 model Genre {
@@ -56,6 +58,8 @@ model Genre {
   updatedAt DateTime @updatedAt
 
   bookGenres BookGenre[]
+
+  @@index([creatorId])
 }
 
 model BookGenre {
@@ -68,4 +72,6 @@ model BookGenre {
   genre Genre @relation(fields: [genreId], references: [id])
 
   @@unique([bookId, genreId])
+  @@index([bookId])
+  @@index([genreId])
 }
